@@ -17,9 +17,10 @@ var (
 )
 
 type scanPortRes struct {
-	Port    int64
-	Success bool
-	Err     error
+	Port           int64
+	Success        bool
+	Err            error
+	TransportProto string
 }
 
 type scanRes struct {
@@ -29,13 +30,32 @@ type scanRes struct {
 
 func main() {
 	var (
-		scanIPStr  string
-		portRanges string
+		scanIPStr      string
+		portRanges     string
+		transportProto string
 	)
 
 	flag.StringVar(&scanIPStr, "i", "", "IP in IPv4 or IPv6 format")
 	flag.StringVar(&portRanges, "p", "", "Port range to scan. Format: 1:10,15,20:30")
+	flag.StringVar(&transportProto, "t", "", "Transport protocol: <udp|tcp>")
 	flag.Parse()
+
+	if scanIPStr == "" {
+		fmt.Println("Provide an IP with the -i flag")
+		return
+	}
+	if portRanges == "" {
+		fmt.Println("Provide ports with the -p flag")
+		return
+	}
+
+	transportProto = strings.ToLower(transportProto)
+	if transportProto == "" {
+		transportProto = "tcp"
+	} else if transportProto != "udp" && transportProto != "tcp" {
+		fmt.Println("Unsupported transport protocol: ", transportProto)
+		return
+	}
 
 	scanIP := net.ParseIP(scanIPStr)
 	if scanIP == nil {
@@ -55,7 +75,8 @@ func main() {
 		return
 	}
 
-	scanResult := scanPorts(scanIP, portArr)
+	fmt.Printf("[%s] Starting port scanning on %s\n", time.Now().Format("2006-01-02 15:04:05"), scanIPStr)
+	scanResult := scanPorts(scanIP, portArr, transportProto)
 	resultString := printScanResults(scanResult)
 
 	fmt.Println(resultString)
@@ -63,7 +84,7 @@ func main() {
 }
 
 // Scans all ports given in portArr at the given IP
-func scanPorts(scanIP net.IP, portArr []int64) *[]scanPortRes {
+func scanPorts(scanIP net.IP, portArr []int64, transportProto string) *[]scanPortRes {
 	numWorkers := 0
 	numPortsToScan := len(portArr)
 	doneCh := make(chan bool, 50)
@@ -73,12 +94,12 @@ func scanPorts(scanIP net.IP, portArr []int64) *[]scanPortRes {
 
 	for _, port := range portArr {
 		if numWorkers < maxWorkers {
-			go scanWorker(scanIP, port, doneCh, &result, resultLock)
+			go scanWorker(scanIP, port, doneCh, &result, resultLock, transportProto)
 			numWorkers++
 		} else {
 			<-doneCh
 			numWorkers--
-			go scanWorker(scanIP, port, doneCh, &result, resultLock)
+			go scanWorker(scanIP, port, doneCh, &result, resultLock, transportProto)
 			numWorkers++
 		}
 	}
@@ -89,16 +110,17 @@ func scanPorts(scanIP net.IP, portArr []int64) *[]scanPortRes {
 }
 
 // scanWorker tries to dial scanIP on the given port and then writes the result to the scanResults map
-func scanWorker(scanIP net.IP, port int64, doneCh chan bool, result *scanRes, resultLock *sync.Mutex) {
+func scanWorker(scanIP net.IP, port int64, doneCh chan bool, result *scanRes, resultLock *sync.Mutex, transportProto string) {
 	address := fmt.Sprintf("%s:%d", scanIP.String(), port)
-	_, err := net.DialTimeout("tcp", address, 5*time.Second)
+	_, err := net.DialTimeout(transportProto, address, 5*time.Second)
 	//defer conn.Close()
 
 	success := (err == nil)
 	scanPortRes := scanPortRes{
-		Port:    port,
-		Success: success,
-		Err:     err,
+		Port:           port,
+		Success:        success,
+		Err:            err,
+		TransportProto: transportProto,
 	}
 	// aquire Mutex and write to map
 	resultLock.Lock()
@@ -109,6 +131,7 @@ func scanWorker(scanIP net.IP, port int64, doneCh chan bool, result *scanRes, re
 	return
 }
 
+// returns a string with all services with open ports in a formatted string
 func printScanResults(scanResults *[]scanPortRes) string {
 	numScans := len(*scanResults)
 	numOpenPorts := 0
@@ -118,8 +141,8 @@ func printScanResults(scanResults *[]scanPortRes) string {
 			continue
 		}
 		numOpenPorts++
-		// ToDo: implement tcp and udp functionality (flag to set)
-		protocol, err := protocolLookup.GetProtocolInfo(scanPortRes.Port, "tcp")
+		// Get service for the given pört
+		protocol, err := protocolLookup.GetProtocolInfo(scanPortRes.Port, scanPortRes.TransportProto)
 		if err != nil {
 			resLine := fmt.Sprintf("%-10d%-10s%-20s%-20s%-30s\n", scanPortRes.Port, "Open", "Unknown", "Unknown", "Unknown")
 			resString = fmt.Sprintf("%s%s", resString, resLine)
