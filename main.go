@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"net"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -23,7 +24,7 @@ type scanPortRes struct {
 	TransportProto string
 }
 
-type scanRes struct {
+type allScanRes struct {
 	scanResults     []scanPortRes
 	numPortsScanned int
 }
@@ -88,7 +89,7 @@ func scanPorts(scanIP net.IP, portArr []int64, transportProto string) *[]scanPor
 	numWorkers := 0
 	numPortsToScan := len(portArr)
 	doneCh := make(chan bool, 50)
-	result := scanRes{}
+	result := allScanRes{}
 	result.numPortsScanned = 0
 	resultLock := &sync.Mutex{}
 
@@ -110,7 +111,7 @@ func scanPorts(scanIP net.IP, portArr []int64, transportProto string) *[]scanPor
 }
 
 // scanWorker tries to dial scanIP on the given port and then writes the result to the scanResults map
-func scanWorker(scanIP net.IP, port int64, doneCh chan bool, result *scanRes, resultLock *sync.Mutex, transportProto string) {
+func scanWorker(scanIP net.IP, port int64, doneCh chan bool, result *allScanRes, resultLock *sync.Mutex, transportProto string) {
 	address := fmt.Sprintf("%s:%d", scanIP.String(), port)
 	_, err := net.DialTimeout(transportProto, address, 5*time.Second)
 	//defer conn.Close()
@@ -139,6 +140,12 @@ func printScanResults(scanResults *[]scanPortRes) string {
 	numScans := len(*scanResults)
 	numOpenPorts := 0
 	resString := fmt.Sprintf("%-10s%-10s%-20s%-20s%-30s\n", "Port", "State", "Transport Protocol", "Service", "Description")
+
+	//sort scanResults by ports
+	sort.Slice(*scanResults, func(i, j int) bool {
+		return (*scanResults)[i].Port < (*scanResults)[j].Port
+	})
+
 	for _, scanPortRes := range *scanResults {
 		if !scanPortRes.Success {
 			continue
