@@ -128,6 +128,9 @@ func scanWorker(scanIP net.IP, port int64, doneCh chan bool, result *scanRes, re
 	result.numPortsScanned++
 	resultLock.Unlock()
 
+	//signal to channel that a worker becomes free
+	doneCh <- true
+
 	return
 }
 
