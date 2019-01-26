@@ -113,10 +113,17 @@ func scanPorts(scanIP net.IP, portArr []int64, transportProto string) *[]scanPor
 // scanWorker tries to dial scanIP on the given port and then writes the result to the scanResults map
 func scanWorker(scanIP net.IP, port int64, doneCh chan bool, result *allScanRes, resultLock *sync.Mutex, transportProto string) {
 	address := fmt.Sprintf("%s:%d", scanIP.String(), port)
-	_, err := net.DialTimeout(transportProto, address, 5*time.Second)
-	//defer conn.Close()
+	conn, err := net.DialTimeout(transportProto, address, 5*time.Second)
+	defer conn.Close()
 
-	success := (err == nil)
+	var success bool
+	switch transportProto {
+	case "udp":
+
+	case "tcp":
+		success = (err == nil)
+	}
+
 	scanPortRes := scanPortRes{
 		Port:           port,
 		Success:        success,
